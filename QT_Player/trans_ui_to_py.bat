@@ -1,0 +1,1 @@
+call pyuic4 -o ui_labeler_class.py ui_labeler_main.ui

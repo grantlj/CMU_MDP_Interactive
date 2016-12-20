@@ -1,0 +1,16 @@
+MDP_Interactive
+Author: Jiang Liu, 12/20/2016
+Compatible to compile and run with Python 2.7 (Anaconda 64-bit)[1], PyQT v4.11[2] and OpenCV 3.1 with python support[3] in 64-bit Windows. Other platforms like Linux and MacOS could be easily supported with little modification.
+============================================================================================================================================================================================
+92-2_demo: an instance of the video folder prepared for user to annotate, including Images/ (raw video frames named with %06d.jpg), model/ (a null folder to store updated tracker), output/ (the tracking result after each annotation iteration, a output_iteration_1.txt is required as the input for first iteration, we use Online MDP[4] to generate the initial result), and det.txt (bounding box detections for each frame, the file format could be refered from [5]).
+
+MDP_Labeler: The code for the interactive labelling tool for multi-object tracking datasets.
+
+QT_Player: a concise version of the video player part used in MDP_Labeler.
+============================================================================================================================================================================================
+[1] https://repo.continuum.io/archive/Anaconda2-4.2.0-Windows-x86_64.exe
+[2] https://www.riverbankcomputing.com/software/pyqt/download
+[3] http://opencv.org/downloads.html
+[4] Xiang, Yu, Alexandre Alahi, and Silvio Savarese. "Learning to track: Online multi-object tracking by decision making." Proceedings of the IEEE International Conference on Computer Vision. 2015.
+[5] Leal-Taix¨¦, Laura, et al. "MOTChallenge 2015: Towards a benchmark for multi-target tracking." arXiv preprint arXiv:1504.01942 (2015).
+ 
