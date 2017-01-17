@@ -3,10 +3,12 @@ import sys
 from ui_labeler_class import *
 from PyQt4.QtGui import *
 from PyQt4.QtCore import *
-from mdp_labeler_utils import *
 import time
 from ui_conflict_main import *
 import math
+from QProgressIndicator import *
+from mdp_interactive_test import *
+from mdp_labeler_utils import *
 
 try:
     _fromUtf8 = QtCore.QString.fromUtf8
@@ -153,7 +155,7 @@ class ClassWidgetPaint(QtGui.QWidget):
 
             if self.main_wind_instance.dataset_instance.im_p==0:
                 return
-            print "paint event, fr:", self.main_wind_instance.dataset_instance.im_p
+           # print "paint event, fr:", self.main_wind_instance.dataset_instance.im_p
 
             #exhibits the bounding boxes...
             dataset_instance=self.main_wind_instance.dataset_instance
@@ -226,7 +228,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
     player_state=-1
 
     #the initial pre-trained model path
-    initial_model_path="train_ALL_tracker.mat"
+    initial_model_path="default.mat"
     def __init__(self, parent=None):
         super(class_MDP_labeler,self).__init__(parent)
         self.ui=Ui_MDPLabler()
@@ -254,6 +256,8 @@ class class_MDP_labeler(QtGui.QMainWindow):
         self.ui.btn_succ.clicked.connect(self.do_succ)
         self.ui.btn_save_result.clicked.connect(self.do_save_result)
         self.ui.btn_out_video.clicked.connect(self.do_output_video)
+        self.ui.btn_update.clicked.connect(self.do_update_model)
+        self.ui.btn_do_track.clicked.connect(self.do_track)
 
         #set a global QPixmap, over it is an QPainter meant to draw bounding box
         self.img_map=QPixmap()
@@ -288,7 +292,6 @@ class class_MDP_labeler(QtGui.QMainWindow):
     #item selection changed
     def widget_det_item_selection_changed(self):
         print "item selection changed...."
-
 
         #larger than 2 selected, no matter what happens, exit!!!
         if len(self.ui.widget_dets.selectedItems())>2:
@@ -371,7 +374,6 @@ class class_MDP_labeler(QtGui.QMainWindow):
         elif len(self.ui.widget_dets.selectedItems())==2 and self.multi_box_selection:
             print "multi box selected..."
             self.widget_det_context_menu_multi_box(position)
-
 
     #multiple box context menu
     def widget_det_context_menu_multi_box(self,position):
@@ -498,7 +500,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
         #need interpolation
         if flag_interpolate:
             print "need interpolating...."
-            reply=QMessageBox.question(self,"Need Interpolation","There is gap among merged tracklet, conduct interpolation?",QMessageBox.Yes|QMessageBox.No)
+            reply=QMessageBox.question(self,"Target interpolation?","There is gap among merged tracklet, conduct interpolation?",QMessageBox.Yes|QMessageBox.No)
             if reply==QMessageBox.Yes:
                 print "user choose interpolation..."
                 self.dataset_instance.do_interpolation(new_target_id)
@@ -513,7 +515,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
 
     #delete a box
     def delete_a_box(self,object_id,fr):
-        reply = QMessageBox.question(self, "Delete the bounding box",
+        reply = QMessageBox.question(self, "Delete the bounding box?",
                                      "Are you sure to delete the box of target "+str(object_id)+" in frame "+str(fr)+"?",
                                      QMessageBox.Yes | QMessageBox.No)
         if reply==QMessageBox.Yes:
@@ -522,7 +524,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
 
     #delete multiple boxes
     def delete_multiple_box(self,object_id,fr_1,fr_2):
-        reply = QMessageBox.question(self, "Delete multiple bounding boxes",
+        reply = QMessageBox.question(self, "Delete multiple bounding boxes?",
                                      "Are you sure to delete the box of target " + str(object_id) + " from frame " + str(
                                          fr_1) +" to frame "+str(fr_2)+ "?",
                                      QMessageBox.Yes | QMessageBox.No)
@@ -539,7 +541,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
 
     #user delete an traget
     def user_delete_an_object(self,now_target_id):
-        reply=QMessageBox.question(self,"Delete a target","Are you sure to delete target "+str(now_target_id)+"?",QMessageBox.Yes | QMessageBox.No)
+        reply=QMessageBox.question(self,"Delete a target?","Are you sure to delete target "+str(now_target_id)+"?",QMessageBox.Yes | QMessageBox.No)
         if reply==QMessageBox.Yes:
             self.dataset_instance.delete_an_object(now_target_id)
 
@@ -680,7 +682,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
         except:
             now_target_id=self.spin_item_id
         if validate_widget_item(now_target_id,col_selected,self.img_map) and col!=0:
-            self.dataset_instance.update_tracket_from_widget_det(now_target_id,col_selected)
+            self.dataset_instance.update_tracklet_from_widget_det(now_target_id,col_selected)
             self.load_tracklet_to_widget()
         else:
             print "invalid box"
@@ -780,7 +782,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
     # choose dataset
     def do_choose_dataset(self):
         print "choose dataset..."
-        video_folder=str(QtGui.QFileDialog.getExistingDirectory(self, "Select dataset to annotate"))
+        video_folder=str(QtGui.QFileDialog.getExistingDirectory(self, "Select a dataset to annotate"))
 
         #check whether valid dataset
         file_count=get_dataset_img_count(video_folder)
@@ -795,27 +797,84 @@ class class_MDP_labeler(QtGui.QMainWindow):
             self.dataset_instance=class_dataset(video_folder,file_count)
             #a valid dataset
             print "a valid path..."
-            #enable ui
-            #enable path textbox
+
+            #self.now_using_model_path=self.initial_model_path
+            #let user to select a initial tracker model
+            self.now_using_model_path=QFileDialog.getOpenFileName(self,"Open an existing tracker",self.initial_model_path,"tracker (*.mat)")
+
+            # enable ui
+            # enable path textbox
             self.ui.box_dataset_path.setEnabled(True);self.ui.box_dataset_path.setPlainText(video_folder)
             self.ui.btn_choose_dataset.setEnabled(False)
-            #generate first round results with initial model and detections
-            self.update_tracking_result_instance=thread_update_tracking_result(self.dataset_instance,self.initial_model_path)
-            self.update_tracking_result_instance.finished.connect(self.finish_tracking)
-            self.update_tracking_result_instance.start()
+
+            #check whether to use existing tracking result OR generate a result from detection result
+            has_previous_result=check_exists_previous_annotation(self.dataset_instance.dataset_root_path)
+
+            #if exist, let user to select for initialization, otherwise initialize from null
+            if has_previous_result:
+                has_previous_result = QMessageBox.question(self, "Use existing annotation result?",
+                                             "Do you want to start with an existing tracking annotation?",
+                                             QMessageBox.Yes | QMessageBox.No)
+            if has_previous_result==QMessageBox.Yes:
+                self.now_using_base_annotation_path=QFileDialog.getOpenFileName(self,"Open an existing annotation file",self.dataset_instance.dataset_root_path+"/output/","txt (*.txt)")
+                prev_ite=get_previous_iteration_by_annotation_filename(self.now_using_base_annotation_path)
+                self.dataset_instance.train_iteration=prev_ite
+            else:
+                self.now_using_base_annotation_path="null_det.txt"
+                self.dataset_instance.train_iteration=0
+
+            self.finish_tracking()
+
+    #do track
+    def do_track(self):
+        print "Conduct tracking..."
+
+        track_all=QMessageBox.question(self, "Track all targets?",
+                                             "Do you want to re-treack annotated tracklets?",
+                                             QMessageBox.Yes | QMessageBox.No)
+
+        if track_all==QMessageBox.Yes:
+            track_all=True
+        else:
+            track_all=False
+
+        self.ui.centralwidget.setEnabled(False)
+        self.progress_bar = QProgressIndicator(self.ui.centralwidget)
+        self.progress_bar.setAnimationDelay(70)
+        self.progress_bar.startAnimation()
+
+        self.update_tracking_result_instance = thread_update_tracking_result(self.dataset_instance,
+                                                                             self.now_using_model_path,track_all)
+        self.update_tracking_result_instance.finished.connect(self.finish_tracking)
+        self.update_tracking_result_instance.start()
+
+        print "Finished tracking..."
+
 
     # finish tracking callback function
-    def finish_tracking(self):
+    def finish_tracking(self, output_file_list_filename=None):
 
+        # the exclusive set, when the traget in this list, the result will not be exhibited
+        self.exc_object_set = set()
+
+        try:
+            self.progress_bar.close()
+            self.ui.centralwidget.setEnabled(True)
+        except:
+            pass
         #enable choose folder button
         self.ui.btn_choose_dataset.setEnabled(True)
 
         #increase train iteration of the instance
         self.dataset_instance.train_iteration+=1
 
-        #then we need to parse and update the tracking result
-        output_file_list_filename=os.path.join(self.dataset_instance.output_path,"output_iteration_"+str(self.dataset_instance.train_iteration)+".txt")
-        print "Tracking finished..."+output_file_list_filename
+
+        if output_file_list_filename is None:
+            output_file_list_filename=self.now_using_base_annotation_path
+        else:
+            output_file_list_filename=str(output_file_list_filename)
+
+        print "Tracking finished..." + output_file_list_filename
         #read the tracking results
         self.dataset_instance.load_detection_results(output_file_list_filename)
 
@@ -830,7 +889,7 @@ class class_MDP_labeler(QtGui.QMainWindow):
         self.ui.btn_play.setEnabled(True);self.ui.btn_pause.setEnabled(True);self.ui.btn_pause.setEnabled(True)
         self.ui.btn_prev.setEnabled(True);self.ui.btn_succ.setEnabled(True);self.ui.btn_hide_all.setEnabled(True)
         self.ui.slider_im.setEnabled(True);self.ui.widget_dets.setEnabled(True)
-        self.ui.btn_out_video.setEnabled(True);self.ui.btn_update.setEnabled(True)
+        self.ui.btn_out_video.setEnabled(True);self.ui.btn_update.setEnabled(True);self.ui.btn_do_track.setEnabled(True)
         self.ui.chbox_frame.setEnabled(True);self.ui.btn_save_result.setEnabled(True)
 
         #enable frame label
@@ -838,9 +897,6 @@ class class_MDP_labeler(QtGui.QMainWindow):
 
         #update training iteration
         self.ui.label_iteration.setText("Iteration: "+str(self.dataset_instance.train_iteration))
-
-        # the exclusive set, when the traget in this list, the result will not be exhibited
-        self.exc_object_set = set()
 
         #load tracking result to widget
         self.load_tracklet_to_widget()
@@ -905,11 +961,6 @@ class class_MDP_labeler(QtGui.QMainWindow):
                 tmp_bbx_item.setBackgroundColor(2, self.dataset_instance.color_dict[track_id]);tmp_bbx_item.setBackgroundColor(3,self.dataset_instance.color_dict[track_id]);
                 tmp_bbx_item.setBackgroundColor(4, self.dataset_instance.color_dict[track_id]);tmp_bbx_item.setBackgroundColor(5,self.dataset_instance.color_dict[track_id]);tmp_bbx_item.setBackgroundColor(6,self.dataset_instance.color_dict[track_id]);
 
-                '''
-                tmp_bbx_item.setForeground(0, QBrush(QColor(self.dataset_instance.color_dict[track_id]))); tmp_bbx_item.setForeground(1, QBrush(QColor(self.dataset_instance.color_dict[track_id])));tmp_bbx_item.setForeground(2, QBrush(QColor(self.dataset_instance.color_dict[track_id])))
-                tmp_bbx_item.setForeground(3, QBrush(QColor(self.dataset_instance.color_dict[track_id])));tmp_bbx_item.setForeground(4, QBrush(QColor(self.dataset_instance.color_dict[track_id])))
-                tmp_bbx_item.setForeground(5, QBrush(QColor(self.dataset_instance.color_dict[track_id])));tmp_bbx_item.setForeground(6, QBrush(QColor(self.dataset_instance.color_dict[track_id])))
-                '''
                 if not only_now:
                     # show all objects
                     now_person_items.addChild(tmp_bbx_item)
@@ -950,6 +1001,43 @@ class class_MDP_labeler(QtGui.QMainWindow):
         self.ui.btn_out_video.setEnabled(True)
         self.ui.btn_out_video.setText("output video")
 
+    #update the model
+    def do_update_model(self):
+        train_all = QMessageBox.question(self, "Train all targets?",
+                                         "Do you want to re-train with annotated tracklets?",
+                                         QMessageBox.Yes | QMessageBox.No)
+
+        if train_all == QMessageBox.Yes:
+            train_all = True
+        else:
+            train_all = False
+
+        print "Update the tracking model..."
+
+        default_file_path = self.dataset_instance.dataset_root_path + "/tracker_after_iteration_" + str(self.dataset_instance.train_iteration) + ".mat"
+        output_tracker_filepath = QFileDialog.getSaveFileName(self, "Save updated tracker file at ", default_file_path, "tracker (*.mat)")
+
+        print "Save model at: ",output_tracker_filepath
+
+        # the thread of updating the tracker
+        self.ui.btn_update.setEnabled(False)
+        self.update_tracker_instance = thread_update_tracker(self.dataset_instance,self.now_using_model_path,output_tracker_filepath,train_all)
+
+        #update model
+        self.now_using_model_path=output_tracker_filepath
+        self.update_tracker_instance.finished.connect(self.finish_updating)
+        self.update_tracker_instance.start()
+
+        self.ui.centralwidget.setEnabled(False)
+        self.progress_bar = QProgressIndicator(self.ui.centralwidget)
+        self.progress_bar.setAnimationDelay(70)
+        self.progress_bar.startAnimation()
+
+    #finish updating model callback function
+    def finish_updating(self):
+        print "Finish updating..."
+        self.ui.centralwidget.setEnabled(True)
+        self.progress_bar.close()
 '''
 ======================================
         Main program starts here.

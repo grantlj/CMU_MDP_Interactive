@@ -199,7 +199,7 @@
    <widget class="QLabel" name="label_iteration">
     <property name="geometry">
      <rect>
-      <x>1010</x>
+      <x>1000</x>
       <y>80</y>
       <width>451</width>
       <height>20</height>
@@ -355,8 +355,8 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>1120</x>
-      <y>817</y>
+      <x>1050</x>
+      <y>820</y>
       <width>93</width>
       <height>41</height>
      </rect>
@@ -371,8 +371,8 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>960</x>
-      <y>817</y>
+      <x>1170</x>
+      <y>820</y>
       <width>93</width>
       <height>41</height>
      </rect>
@@ -515,7 +515,7 @@
     </property>
     <property name="geometry">
      <rect>
-      <x>1280</x>
+      <x>1290</x>
       <y>820</y>
       <width>93</width>
       <height>41</height>
@@ -523,6 +523,22 @@
     </property>
     <property name="text">
      <string>output video</string>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="btn_do_track">
+    <property name="enabled">
+     <bool>false</bool>
+    </property>
+    <property name="geometry">
+     <rect>
+      <x>930</x>
+      <y>820</y>
+      <width>93</width>
+      <height>41</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Track</string>
     </property>
    </widget>
   </widget>

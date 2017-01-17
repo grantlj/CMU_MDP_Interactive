@@ -14,12 +14,15 @@ from PyQt4.QtGui import *
 import numpy as np
 from scipy import interpolate
 import cv2
-
+import mdp_interactive_train
+import mdp_interactive_test
+from shutil import copyfile
 
 det_file_surfix="det.txt"
 img_path_surfix="Images"
 model_path_surfix="model"
 output_path_surfix="output"
+tmp_path_surfix="tmp"
 
 class BBX:
     def __init__(self, fr, x, y, w, h, score):
@@ -38,14 +41,19 @@ class class_dataset:
         self.img_list_path = os.path.join(self.dataset_root_path, img_path_surfix)
         self.model_path = os.path.join(self.dataset_root_path, model_path_surfix)
         self.output_path = os.path.join(self.dataset_root_path, output_path_surfix)
-        self.det_filename = os.path.join(self.dataset_root_path, det_file_surfix)
 
         self.train_iteration=0
         self.im_p=0
         self.now_im_filename=""
 
+        #establish a temporary path to store tmp file
+        self.dataset_tmp_root_path=os.path.join(self.dataset_root_path, tmp_path_surfix)
+        if not os.path.exists(self.dataset_tmp_root_path):
+            os.mkdir(self.dataset_tmp_root_path)
+
     #linear interpolation of the bounding box
     def do_interpolation(self,target_id,st_fr=None,end_fr=None):
+        self.changed_person_id.add(target_id)
         tracklet=self.tracklet_dict[target_id]
 
         if st_fr is not None:
@@ -90,6 +98,10 @@ class class_dataset:
         tracklet_dict=dict()
         color_dict=dict();color_set=set()
 
+        # Maintain a list of person id, which the tracklets have been manually edited by end user.
+        # In this case, these tracklets are treated as the positive samples for the MDP tracking system to update
+        self.changed_person_id = set()
+
         for now_line in all_lines:
             tmp_str=now_line.split(",")
             now_fr=int(tmp_str[0]);now_id=int(tmp_str[1]);now_x=float(tmp_str[2]);now_y=float(tmp_str[3]);now_w=float(tmp_str[4]);now_h=float(tmp_str[5]);now_score=float(tmp_str[6])
@@ -124,6 +136,8 @@ class class_dataset:
         self.tracklet_dict[new_object_id]=[new_box]
         now_color,now_color_str=generate_a_unique_color(self.color_set);self.color_dict[new_object_id]=now_color;self.color_set.add(now_color_str)
 
+        self.changed_person_id.add(new_object_id)
+
     #user add the bounding box to existing object tracklet
     def add_to_existing_object_from_widget_paint(self,object_id,widget_paint,img_map):
         now_object_tracklet=self.tracklet_dict[object_id]
@@ -148,8 +162,10 @@ class class_dataset:
         print "Add new bounding box done."
         now_object_tracklet.sort(key=lambda x: x.fr)
 
+        self.changed_person_id.add(object_id)
+
     #user edit bounding box from widget_dets
-    def update_tracket_from_widget_det(self,object_id,widget_box_item):
+    def update_tracklet_from_widget_det(self,object_id,widget_box_item):
         print "udpdate tracklet by editing widget detection..."
         now_object_tracklet=self.tracklet_dict[object_id]
 
@@ -170,6 +186,8 @@ class class_dataset:
             now_object_tracklet.append(new_box)
         now_object_tracklet.sort(key=lambda x:x.fr)
 
+        self.changed_person_id.add(object_id)
+
     #get the start frame of a target
     def get_target_start_end_frame(self,target_id):
         tracklet=self.tracklet_dict[target_id]
@@ -178,6 +196,7 @@ class class_dataset:
     #replace existing tracklet with a new one
     def replace_existing_tracklet_with_new(self,object_id,merged_box_list):
         self.tracklet_dict[object_id]=merged_box_list
+        self.changed_person_id.add(object_id)
         return object_id
 
     #set image position
@@ -185,12 +204,63 @@ class class_dataset:
         self.im_p=fr_pos
         self.now_im_filename="%s/%05d.jpg"%(self.img_list_path,fr_pos)
 
+    #get the reverse of changed person id set
+    def get_reverse_of_changed_person_id(self,changed_person_id_set):
+        ret_set=set()
+        for (tracker_id,_) in self.tracklet_dict.items():
+            if not tracker_id in changed_person_id_set:
+                ret_set.add(tracker_id)
+
+        return ret_set
+
+    #merge the dataset instance result with a tracking result outputed by a MDP tracking test
+    def merge_with_tmp_tracking_output(self,tmp_tracking_output_filename):
+
+        #first we dump all the previously annotated bounding boxes
+        tmp_merge_output_filename=os.path.join(self.dataset_tmp_root_path, "tmp_merge.txt")
+        self.dump_annotation_result(tmp_merge_output_filename,2)
+
+        max_id=max([x for x in self.tracklet_dict.keys() if x not in self.changed_person_id])
+
+        with open(tmp_tracking_output_filename,"r") as f:
+            tmp_all_lines=f.readlines()
+
+        with open(tmp_merge_output_filename, "a") as f:
+            for now_line in tmp_all_lines:
+                tmp_str = now_line.split(",");now_fr = int(tmp_str[0]);now_id = int(tmp_str[1]);now_x = float(tmp_str[2]);now_y = float(tmp_str[3]);now_w = float(tmp_str[4]);now_h = float(tmp_str[5]);
+                now_score = float(tmp_str[6])
+                now_id=now_id+max_id
+                now_line = "%d,%d,%f,%f,%f,%f,%f,-1.000,-1.000,-1.000\n" % (
+                now_fr, now_id, now_x, now_y, now_w, now_h, now_score)
+                f.write(now_line)
+
+        os.remove(tmp_tracking_output_filename)
+        copyfile(tmp_merge_output_filename,tmp_tracking_output_filename)
+        os.remove(tmp_merge_output_filename)
+
     #save present annotation result to file
-    def dump_annotation_result(self,filename):
-        print "save result to: "+filename
+    def dump_annotation_result(self,filename,dump_mode=0):
+        #dump mode:
+        # mode = 0: the default mode to dump, dump all tracking results
+        # mode = 1: in training mode, dump only the annotated person in the dictionary, so that the MDP trainer can update a tracker
+        # mode = 2: in testing mode, dump only the UN-annotated person in the dictionary, as the detections to the MDP tester
+
+        print "save result to: "+filename+" with mode: "+str(dump_mode)
         all_lines=[]
 
+        if dump_mode==1:
+            tmp_exempt_id_set=self.changed_person_id
+        elif dump_mode==2:
+            tmp_exempt_id_set=self.get_reverse_of_changed_person_id(self.changed_person_id)
+
         for (track_id, tracklet) in self.tracklet_dict.items():
+            #if update_tracker_mode==True:
+            #    if not track_id in self.changed_person_id:
+            #        continue
+
+            if (dump_mode!=0) and (not track_id in tmp_exempt_id_set):
+                continue
+
             for now_box in tracklet:
                 now_line="%d,%d,%f,%f,%f,%f,%f,-1.000,-1.000,-1.000\n"%(now_box.fr,track_id,now_box.x,now_box.y,now_box.w,now_box.h,now_box.score)
                 all_lines.append(now_line)
@@ -201,27 +271,41 @@ class class_dataset:
     def delete_an_object(self,object_id):
         print "delete an object"
         del self.tracklet_dict[object_id]
+        if object_id in self.changed_person_id:
+            self.changed_person_id.remove(object_id)
 
     #delete a particular bounding box
     def delete_a_box(self,object_id,fr):
         now_tracklet=self.tracklet_dict[object_id]
+        self.changed_person_id.add(object_id)
+
         index = next((i for i, now_box in enumerate(now_tracklet) if now_box.fr == fr), -1)
         if (index==1):
             print "trying to delete an invalid box..."
             return
+
         now_tracklet.pop(index)
         now_tracklet.sort(key=lambda x: x.fr)
-        self.tracklet_dict[object_id]=now_tracklet
+
+        if len(now_tracklet)!=0:
+            self.tracklet_dict[object_id]=now_tracklet
+        else:
+            del self.tracklet_dict[object_id]
+            self.changed_person_id.remove(object_id)
 
     #split a particular tracklet from a frame
     def split_a_tracklet(self,object_id,fr):
         now_tracklet=self.tracklet_dict[object_id]
+
+        self.changed_person_id.add(object_id)
+
         try:
             new_object_id = max(self.tracklet_dict.keys()) + 1
         except:
             new_object_id = 1
             print "add new object error handled..."
-        new_tracklet=[]
+
+        self.changed_person_id.add(new_object_id)
 
         index = next((i for i, now_box in enumerate(now_tracklet) if now_box.fr == fr), -1)
         if (index == 1):
@@ -232,7 +316,6 @@ class class_dataset:
 
         self.tracklet_dict[new_object_id]=new_tracklet;self.tracklet_dict[object_id]=now_tracklet
         new_color, new_color_str = generate_a_unique_color(self.color_set); self.color_dict[new_object_id] = new_color;self.color_set.add(new_color_str)
-
         return new_object_id
 
     #find bounding box via target_id and frame
@@ -281,8 +364,7 @@ class class_dataset:
 
 
         #transfer to
-        fourcc = cv2.VideoWriter_fourcc(*'XVID')
-        fps=7.00;
+        fourcc = cv2.VideoWriter_fourcc(*'XVID');fps=7.00
         writer = cv2.VideoWriter(str(vid_filename), fourcc, fps, (now_im.width(),now_im.height()))
         for now_fr in xrange(1,self.img_count):
             print "writing frame,",now_fr
@@ -315,12 +397,6 @@ def generate_a_unique_color(color_set):
 #get dataset image count, differentiate whether a valid path (with Images and det.txt")
 def get_dataset_img_count(dataset_root_path):
     print dataset_root_path
-    det_filename=os.path.join(dataset_root_path,det_file_surfix)
-
-    #check whether detection and frame folder exists....
-    if not os.path.isfile(det_filename):
-        print "Detection file not found..."
-        return -1
 
     img_list_path=os.path.join(dataset_root_path,img_path_surfix)
     if not os.path.exists(img_list_path):
@@ -346,24 +422,6 @@ def get_dataset_img_count(dataset_root_path):
             file_count += 1
     print "File count: ", file_count
     return file_count
-
-#get up-to-date result with tracker and detections (using a sepearate thread...)
-class thread_update_tracking_result(QThread):
-    finished = pyqtSignal()
-    def __init__(self,dataset_instance,tracker_filename,parent=None):
-        super(thread_update_tracking_result,self).__init__(parent)
-        self.dataset_instance=dataset_instance;self.tracker_filename=tracker_filename
-    def run(self):
-        print "generating tracking result, with dataset:  "+self.dataset_instance.det_filename+"  , using tracker_filename"+self.tracker_filename
-
-        '''
-            for coding test use only.
-        '''
-        for i in xrange(0,2):
-            time.sleep(1)
-            print "Handling:    ",i
-
-        self.finished.emit()
 
 # get corresponding qstringlist from a given bounding box
 def get_bbx_qstringlist(now_bbx, id):
@@ -436,6 +494,98 @@ def convert_qimage_to_mat(incomingImage):
     ptr.setsize(incomingImage.byteCount())
     arr = np.array(ptr).reshape(height, width, 4)  #  Copies the data
     return arr
+
+#Check whether existing previous annotation results
+def check_exists_previous_annotation(dataset_root_path):
+    print "Checking whether have existing result..."
+    output_root_path=os.path.join(dataset_root_path,"output")
+    p=0
+    while True:
+        print os.path.join(output_root_path,"output_iteration_"+str(p+1)+".txt")
+        if  os.path.isfile(os.path.join(output_root_path,"output_iteration_"+str(p+1)+".txt")):
+            p+=1
+        else:
+            break
+    if p==0:
+        return False
+    else:
+        return True
+
+#get the iteration number from existing annotation filename
+def get_previous_iteration_by_annotation_filename(now_using_base_annotation_path):
+    now_using_base_annotation_path=str(now_using_base_annotation_path)
+    tmp_pos_1=now_using_base_annotation_path.rindex("_")
+    tmp_pos_2=now_using_base_annotation_path.rindex(".")
+    return int(now_using_base_annotation_path[tmp_pos_1+1:tmp_pos_2])
+
+#get up-to-date result with tracker and detections (using a sepearate thread...)
+class thread_update_tracking_result(QThread):
+    finished = pyqtSignal(['QString'])
+    def __init__(self,dataset_instance,tracker_filename,track_all,parent=None):
+        super(thread_update_tracking_result,self).__init__(parent)
+        self.dataset_instance=dataset_instance;self.tracker_filename=tracker_filename
+        self.track_all=track_all
+
+    def run(self):
+        print "generating tracking result, with dataset:  "+self.dataset_instance.dataset_root_path+"  , using tracker_filename"+self.tracker_filename
+        #first we need to generate a temporary file as detection input
+        tmp_annotation_filename = os.path.join(self.dataset_instance.dataset_tmp_root_path, "tmp_det_to_test.txt")
+        tmp_tracking_output_filename=os.path.join(self.dataset_instance.dataset_tmp_root_path,"tmp_tracking_output.txt")
+
+        if not self.track_all:
+            #track only not annotated objects (i.e., the newly inserted ones, etc...)
+            self.dataset_instance.dump_annotation_result(tmp_annotation_filename,1)
+        else:
+            #track all the objects
+            self.dataset_instance.dump_annotation_result(tmp_annotation_filename)
+
+        video_tester=mdp_interactive_test.initialize()
+        video_tester.MDP_interactive_test(str(self.dataset_instance.dataset_root_path),str(self.tracker_filename),self.dataset_instance.img_count,str(tmp_tracking_output_filename))
+        video_tester.terminate()
+
+        #after the tracking is finished, we need to genereate the final output iteration
+        if self.track_all:
+            #we select to track all objects, directly show them
+            print "Handling case with track all objects..."
+            #directly copy to output path
+
+        else:
+            #we select to partially track not annotated objects
+            print "Handling case with track not annotated objects..."
+            self.dataset_instance.merge_with_tmp_tracking_output(tmp_tracking_output_filename)
+
+        dest_filename = os.path.join(self.dataset_instance.output_path,
+                                     "output_iteration_" + str(self.dataset_instance.train_iteration) + ".txt")
+        copyfile(tmp_tracking_output_filename, dest_filename)
+        os.remove(tmp_tracking_output_filename)
+        self.finished.emit(dest_filename)
+
+#the class of online learning a tracker.
+class thread_update_tracker(QThread):
+    finished=pyqtSignal()
+    def __init__(self,dataset_instance,original_tracker_filename,dest_tracker_filename,train_all,parent=None):
+        super(thread_update_tracker, self).__init__(parent)
+        self.dataset_instance=dataset_instance;self.original_tracker_filename=original_tracker_filename;self.dest_tracker_filename=dest_tracker_filename
+        self.train_all=train_all
+    def run(self):
+        print "In the thread of updating tracker..."
+
+        #construct the training sample file
+        tmp_annotation_filename=os.path.join(self.dataset_instance.dataset_tmp_root_path,"tmp_annotation_to_train_tracker.txt")
+
+        if not self.train_all:
+            self.dataset_instance.dump_annotation_result(tmp_annotation_filename,1)
+        else:
+            self.dataset_instance.dump_annotation_result(tmp_annotation_filename)
+        #use the matlab interface to run the tracker trainer
+        tracker_trainer = mdp_interactive_train.initialize()
+        number_of_new_samples = tracker_trainer.MDP_interactive_train(str(self.dataset_instance.dataset_root_path), str(self.original_tracker_filename), self.dataset_instance.img_count, self.dataset_instance.train_iteration, str(self.dest_tracker_filename))
+
+        tracker_trainer.terminate()
+        print "Number of new training samples: ", number_of_new_samples
+        self.finished.emit()
+
+
 
 
 
