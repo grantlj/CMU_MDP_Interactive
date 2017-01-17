@@ -1,3 +1,5 @@
+Update: 01/16/2017, Add interactive training and tesing module based on MDP framework.
+
 MDP_Interactive
 Author: Jiang Liu, 12/20/2016
 Compatible to compile and run with Python 2.7 (Anaconda 64-bit)[1], PyQT v4.11[2] and OpenCV 3.1 with python support[3] in 64-bit Windows. Other platforms like Linux and MacOS could be easily supported with little modification.
@@ -12,5 +14,5 @@ QT_Player: a concise version of the video player part used in MDP_Labeler.
 [2] https://www.riverbankcomputing.com/software/pyqt/download
 [3] http://opencv.org/downloads.html
 [4] Xiang, Yu, Alexandre Alahi, and Silvio Savarese. "Learning to track: Online multi-object tracking by decision making." Proceedings of the IEEE International Conference on Computer Vision. 2015.
-[5] Leal-Taix¨¦, Laura, et al. "MOTChallenge 2015: Towards a benchmark for multi-target tracking." arXiv preprint arXiv:1504.01942 (2015).
+[5] Leal-TaixÂ¨Â¦, Laura, et al. "MOTChallenge 2015: Towards a benchmark for multi-target tracking." arXiv preprint arXiv:1504.01942 (2015).
  
