@@ -332,9 +332,11 @@ class class_MDP_labeler(QtGui.QMainWindow):
         #print "save present result..."
         time_str=time.strftime('%Y%m%d%H%M%S', time.localtime(time.time()))
         default_file_name=self.dataset_instance.dataset_root_path+"/annotation_"+time_str+".txt"
+        default_color_file_name=self.dataset_instance.dataset_root_path+"/annotation_"+time_str+"color.json"
         file_path=QFileDialog.getSaveFileName(self,"Save annotation file",default_file_name,"annotation files (*.txt)")
         if file_path!="":
             self.dataset_instance.dump_annotation_result(file_path)
+            self.dataset_instance.dump_annotation_color(default_color_file_name)
         else:
             print "User does not make a valid selection..."
     #hide button event

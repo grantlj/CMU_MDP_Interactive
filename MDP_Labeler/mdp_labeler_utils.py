@@ -17,6 +17,7 @@ import cv2
 import mdp_interactive_train
 import mdp_interactive_test
 from shutil import copyfile
+import json
 
 det_file_surfix="det.txt"
 img_path_surfix="Images"
@@ -266,6 +267,18 @@ class class_dataset:
                 all_lines.append(now_line)
         with open(filename,"w") as f:
             f.writelines(all_lines)
+
+    #dump the color of the annotation result
+    def dump_annotation_color(self,filename):
+        print "dump the color of the annotation results:",filename
+        tmp_color_dict=dict()
+
+        for (tracklet_id,tracklet_color) in self.color_dict.items():
+            tmp_color_dict[tracklet_id]=str(tracklet_color.red())+","+str(tracklet_color.green())+","+str(tracklet_color.blue())
+
+        json_str=json.dumps(tmp_color_dict)
+        with open(filename,"w") as f:
+            f.writelines(json_str)
 
     #delete a particular object
     def delete_an_object(self,object_id):
